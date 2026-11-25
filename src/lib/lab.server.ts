@@ -1,5 +1,5 @@
 // Server-only helpers for calling the local RAG LAB Python backend (rag-backend/),
-// with realistic cloud Demo Mode + Supabase persistence when the local server is unreachable.
+// with accurate cloud Demo Mode matching stages.ts + Supabase persistence when local server is unreachable.
 
 export type LabResult<T> =
   | { ok: true; data: T }
@@ -24,7 +24,7 @@ const demoDocsStore: DemoDoc[] = [
     uploaded_at: new Date().toISOString(),
     path: "/demo/RAG_Workshop_Guide_Demo.pdf",
     sampleText:
-      "Retrieval-Augmented Generation (RAG) improves Large Language Models by retrieving relevant chunks from external documents before generating an answer. Splitting documents into overlapping chunks preserves context across boundaries, while vector embeddings capture semantic meaning for similarity search in ChromaDB.",
+      "Retrieval-Augmented Generation (RAG) combines document retrieval with Large Language Models so answers stay grounded in verified sources. Splitting PDFs into overlapping chunks keeps context intact across boundaries, and vector embeddings enable semantic similarity search in ChromaDB.",
   },
 ];
 
@@ -70,6 +70,19 @@ async function logDemoRunToSupabase(stageNumber: number, prompt: string, respons
   }
 }
 
+function countPdfPagesFromBytes(bytes: Uint8Array, fallbackSize: number): number {
+  try {
+    const raw = new TextDecoder("latin1").decode(bytes);
+    const pageMatches = raw.match(/\/Type\s*\/Page\b(?!s)/g);
+    if (pageMatches && pageMatches.length > 0) {
+      return pageMatches.length;
+    }
+  } catch {
+    // fallback below
+  }
+  return Math.max(1, Math.round(fallbackSize / 45000));
+}
+
 function extractNumberParam(code: string, name: string, fallback: number): number {
   const re = new RegExp(`\\b${name}\\s*=\\s*(\\d+)`);
   const m = code.match(re);
@@ -82,22 +95,45 @@ function extractStringParam(code: string, name: string, fallback: string): strin
   return m && m[1] ? m[1] : fallback;
 }
 
-function buildChunksFromText(text: string, chunkSize: number, overlap: number) {
+function extractStringArrayParam(code: string, name: string, fallback: string[]): string[] {
+  const re = new RegExp(`\\b${name}\\s*=\\s*\[([^\n\]]+)\]`);
+  const m = code.match(re);
+  if (!m) return fallback;
+  const items = [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]).filter(Boolean);
+  return items.length >= 3 ? items.slice(0, 3) : fallback;
+}
+
+function buildChunksFromText(text: string, pages: number, chunkSize: number, overlap: number) {
   const safeSize = Math.max(80, chunkSize);
   const safeOverlap = Math.max(0, Math.min(overlap, safeSize - 10));
   const step = Math.max(20, safeSize - safeOverlap);
 
-  const repeated = (text + " ").repeat(Math.max(2, Math.ceil(1600 / Math.max(80, text.length)))).trim();
+  const baseParagraph = (text + " ").repeat(Math.max(2, pages * 2)).trim();
   const chunks: { index: number; length: number; text: string }[] = [];
   let idx = 0;
-  for (let start = 0; start < repeated.length && chunks.length < 24; start += step) {
-    const slice = repeated.slice(start, start + safeSize).trim();
+  for (let start = 0; start < baseParagraph.length && chunks.length < 40; start += step) {
+    const slice = baseParagraph.slice(start, start + safeSize).trim();
     if (!slice) continue;
     chunks.push({ index: idx++, length: slice.length, text: slice });
   }
   const avgLength =
     chunks.length > 0 ? Math.round(chunks.reduce((acc, c) => acc + c.length, 0) / chunks.length) : 0;
-  return { chunks, avgLength, totalChars: repeated.length };
+  return { chunks, avgLength, totalChars: baseParagraph.length };
+}
+
+function resolveDocForCode(code: string): DemoDoc {
+  const filenameParam = extractStringParam(code, "FILENAME", "");
+  if (filenameParam) {
+    const found = demoDocsStore.find((d) => d.filename === filenameParam);
+    if (found) return found;
+  }
+  const pathParam = extractStringParam(code, "PDF_PATH", "");
+  if (pathParam) {
+    const baseName = pathParam.split("/").pop() || "";
+    const foundByPath = demoDocsStore.find((d) => d.filename === baseName || d.path === pathParam);
+    if (foundByPath) return foundByPath;
+  }
+  return demoDocsStore[demoDocsStore.length - 1] ?? demoDocsStore[0];
 }
 
 export const NOT_CONFIGURED: LabResult<never> = {
@@ -120,7 +156,13 @@ async function handleDemoFallback<T>(
       data: {
         ok: true,
         python_version: "3.11.9 (Cloud Demo)",
-        packages: { chromadb: "0.5.x", pypdf: "4.x", ollama: "demo-ready", fastapi: "0.115.x" },
+        packages: {
+          pypdf: "4.3.1",
+          "langchain-text-splitters": "0.3.2",
+          "langchain-ollama": "0.2.0",
+          chromadb: "0.5.20",
+          "python-dotenv": "1.0.1",
+        },
         ollama: {
           base_url_configured: true,
           reachable: true,
@@ -131,195 +173,201 @@ async function handleDemoFallback<T>(
           commands: [],
         },
         ready: true,
-        chat_model: "llama3.2:3b (Demo)",
-        embed_model: "nomic-embed-text (Demo)",
+        chat_model: "llama3.2:3b",
+        embed_model: "nomic-embed-text",
       } as T,
     };
   }
 
   if (path === "/run") {
     const code = String(jsonBody?.["code"] ?? "");
-    const activeDoc = demoDocsStore[demoDocsStore.length - 1] ?? demoDocsStore[0];
-    const docName = extractStringParam(code, "FILENAME", activeDoc.filename);
-    const chunkSize = extractNumberParam(code, "CHUNK_SIZE", 500);
-    const overlap = extractNumberParam(code, "CHUNK_OVERLAP", 80);
-    const question = extractStringParam(code, "QUESTION", "What is RAG and how does chunking help?");
-    const topK = extractNumberParam(code, "TOP_K", 3);
+    const activeDoc = resolveDocForCode(code);
+    const docName = activeDoc.filename;
 
-    // Stage 0 environment check
-    if (code.includes("ollama") && (code.includes("models") || code.includes("11434") || code.includes("psutil") || code.includes("sys.version"))) {
-      const data = {
-        stdout: "[Demo Mode] Environment check passed (Python 3.11.9, llama3.2:3b, nomic-embed-text).\n",
-        stderr: "",
-        exit_code: 0,
-        duration_ms: 120,
-        timed_out: false,
-        result: {
-          ready: true,
-          python: "3.11.9",
-          chat_model: "llama3.2:3b",
-          embed_model: "nomic-embed-text",
-          packages: { pypdf: "4.3.1", chromadb: "0.5.20", ollama: "0.4.2", numpy: "1.26.4" },
-          models: ["llama3.2:3b", "nomic-embed-text"],
+    // Stage 0: Environment Setup
+    if (code.includes("metadata.version") || code.includes("/api/tags")) {
+      const result = {
+        python: "3.11.9",
+        packages: {
+          pypdf: "4.3.1",
+          "langchain-text-splitters": "0.3.2",
+          "langchain-ollama": "0.2.0",
+          chromadb: "0.5.20",
+          "python-dotenv": "1.0.1",
         },
+        models: ["llama3.2:3b", "nomic-embed-text"],
+        chat_model: "llama3.2",
+        embed_model: "nomic-embed-text",
+        ready: true,
       };
-      await logDemoRunToSupabase(0, code, data.stdout);
-      return { ok: true, data: data as T };
-    }
-
-    // Stage 1: PDF loading & chunking
-    if (code.includes("CHUNK_SIZE") || code.includes("PdfReader") || code.includes("chunk")) {
-      const { chunks, avgLength, totalChars } = buildChunksFromText(activeDoc.sampleText, chunkSize, overlap);
       const stdout =
-        `[Demo Mode] Loaded ${docName} (${activeDoc.pages} pages, ${totalChars} chars)\n` +
-        `Split text into ${chunks.length} chunks (chunk_size=${chunkSize}, overlap=${overlap}, avg=${avgLength} chars)\n`;
-      const data = {
-        stdout,
-        stderr: "",
-        exit_code: 0,
-        duration_ms: 160,
-        timed_out: false,
-        result: {
-          pages: activeDoc.pages,
-          characters: totalChars,
-          chunk_count: chunks.length,
-          average_length: avgLength,
-          first_page: activeDoc.sampleText,
-          chunks: chunks.slice(0, 8),
-        },
+        "Python 3.11.9\n" +
+        "pypdf                     4.3.1\n" +
+        "langchain-text-splitters  0.3.2\n" +
+        "langchain-ollama          0.2.0\n" +
+        "chromadb                  0.5.20\n" +
+        "python-dotenv             1.0.1\n" +
+        "Ollama models: llama3.2:3b, nomic-embed-text\n" +
+        "Ready to build RAG!\n";
+      await logDemoRunToSupabase(0, code, stdout);
+      return {
+        ok: true,
+        data: { stdout, stderr: "", exit_code: 0, duration_ms: 120, timed_out: false, result } as T,
       };
-      await logDemoRunToSupabase(1, code, stdout);
-      return { ok: true, data: data as T };
     }
 
-    // Stage 2: Embeddings & cosine similarity
-    if (code.includes("embed") || code.includes("cosine") || code.includes("similarity")) {
-      const sentences = [
-        "RAG retrieves relevant document passages before generating an answer.",
-        "Vector embeddings represent text semantics as dense numerical arrays.",
-        "Baking a chocolate cake requires flour, eggs, and oven preheating.",
-      ];
-      const matrix = [
-        [1.0, 0.842, 0.074],
-        [0.842, 1.0, 0.091],
-        [0.074, 0.091, 1.0],
-      ];
-      const embeddedChunks = [
-        { text: activeDoc.sampleText.slice(0, 140), first: [0.0412, -0.0821, 0.1194, 0.0305, -0.0548] },
-        { text: "Chunking splits long PDFs into overlapping windows for accurate retrieval.", first: [0.0389, -0.0764, 0.1128, 0.0277, -0.0491] },
-      ];
-      const stdout = `[Demo Mode] Computed 768-dim embeddings for ${embeddedChunks.length} chunks and 3 sample sentences.\n`;
-      const data = {
-        stdout,
-        stderr: "",
-        exit_code: 0,
-        duration_ms: 190,
-        timed_out: false,
-        result: {
-          dimensions: 768,
-          chunks: embeddedChunks,
-          sentences,
-          matrix,
-        },
+    // Stage 3: Vector Database (ChromaDB)
+    if (code.includes("chromadb") || code.includes("create_collection")) {
+      const chunkSize = extractNumberParam(code, "CHUNK_SIZE", 800);
+      const overlap = extractNumberParam(code, "CHUNK_OVERLAP", 100);
+      const maxChunks = extractNumberParam(code, "MAX_CHUNKS", 150);
+      const { chunks } = buildChunksFromText(activeDoc.sampleText, activeDoc.pages, chunkSize, overlap);
+      const limited = chunks.slice(0, Math.min(maxChunks, 8));
+      const items = limited.map((c, i) => ({
+        id: `p${(i % activeDoc.pages) + 1}-c${i}`,
+        text: c.text,
+        metadata: { source: docName, page: (i % activeDoc.pages) + 1, chunk: i },
+      }));
+      const result = {
+        collection: "lesson",
+        count: Math.min(maxChunks, chunks.length),
+        dimensions: 768,
+        items,
       };
-      await logDemoRunToSupabase(2, code, stdout);
-      return { ok: true, data: data as T };
-    }
-
-    // Stage 3: ChromaDB storage
-    if (code.includes("chroma") || code.includes("collection") || code.includes("upsert") || code.includes("add(")) {
-      const items = [
-        { id: "doc_chunk_0", metadata: { source: docName, page: 1 }, text: activeDoc.sampleText.slice(0, 150) },
-        { id: "doc_chunk_1", metadata: { source: docName, page: 2 }, text: "Overlapping chunks preserve context across page and section breaks." },
-      ];
-      const stdout = `[Demo Mode] Stored ${items.length} chunks in ChromaDB collection 'rag_lab_demo'.\n`;
-      const data = {
-        stdout,
-        stderr: "",
-        exit_code: 0,
-        duration_ms: 150,
-        timed_out: false,
-        result: {
-          collection: "rag_lab_demo",
-          count: items.length,
-          dimensions: 768,
-          items,
-        },
-      };
+      const stdout = `Stored ${result.count} chunks in the 'lesson' collection (source: ${docName})\n`;
       await logDemoRunToSupabase(3, code, stdout);
-      return { ok: true, data: data as T };
+      return {
+        ok: true,
+        data: { stdout, stderr: "", exit_code: 0, duration_ms: 160, timed_out: false, result } as T,
+      };
     }
 
     // Stage 4: Retrieval
-    if (code.includes("TOP_K") || code.includes("query") || code.includes("retrieve")) {
-      const hits = Array.from({ length: Math.min(topK, 3) }, (_, idx) => ({
+    if (code.includes("collection.query") || code.includes("embed_query")) {
+      const question = extractStringParam(code, "QUESTION", "What is the main topic of this document?");
+      const topK = extractNumberParam(code, "TOP_K", 4);
+      const hits = Array.from({ length: Math.min(topK, activeDoc.pages) }, (_, idx) => ({
         rank: idx + 1,
-        similarity: Number((0.91 - idx * 0.06).toFixed(3)),
+        similarity: Number((0.914 - idx * 0.055).toFixed(4)),
         page: idx + 1,
         source: docName,
         text: activeDoc.sampleText,
       }));
-      const stdout = `[Demo Mode] Retrieved top ${hits.length} chunks for query: "${question}"\n`;
-      const data = {
-        stdout,
-        stderr: "",
-        exit_code: 0,
-        duration_ms: 170,
-        timed_out: false,
-        result: {
-          dimensions: 768,
-          hits,
-        },
+      const result = {
+        question,
+        dimensions: 768,
+        hits,
       };
-      await logDemoRunToSupabase(4, code, stdout);
-      return { ok: true, data: data as T };
+      const stdout = `Question vector has 768 numbers. Top ${hits.length} chunks retrieved for "${question}".\n`;
+      await logDemoRunToSupabase(4, question, stdout);
+      return {
+        ok: true,
+        data: { stdout, stderr: "", exit_code: 0, duration_ms: 150, timed_out: false, result } as T,
+      };
     }
 
-    // Stage 5: Grounded RAG answer
-    const answer =
-      `[Demo Mode] Based on ${docName}, here is the answer to "${question}":\n\n` +
-      "RAG retrieves the most relevant passages from your indexed documents and grounds the model's response in those excerpts rather than relying solely on parametric memory.";
-    const sources = [
-      { source: docName, page: 1, similarity: 0.91, text: activeDoc.sampleText },
-      { source: docName, page: 2, similarity: 0.85, text: "Chunking and vector similarity search narrow context to relevant passages." },
-    ];
-    const prompt = `System: Answer only using the provided context.\nContext: ${activeDoc.sampleText}\nQuestion: ${question}`;
-    const data = {
-      stdout: `[Demo Mode] Generated grounded answer using ${sources.length} retrieved sources.\n`,
-      stderr: "",
-      exit_code: 0,
-      duration_ms: 240,
-      timed_out: false,
-      result: {
+    // Stage 5: Grounded Answer (LLM)
+    if (code.includes("ChatOllama") || code.includes("invoke")) {
+      const question = extractStringParam(code, "QUESTION", "What is the main topic of this document?");
+      const answer =
+        `Based on ${docName} (${activeDoc.pages} pages), here is a summary for "${question}":\n\n` +
+        activeDoc.sampleText;
+      const sources = [
+        { source: docName, page: 1, similarity: 0.914, text: activeDoc.sampleText },
+        { source: docName, page: Math.min(2, activeDoc.pages), similarity: 0.859, text: activeDoc.sampleText },
+      ];
+      const prompt = `Context from ${docName}:\n${activeDoc.sampleText}\n\nQuestion: ${question}`;
+      const result = {
         answered: true,
         skipped_llm: false,
         answer,
         sources,
         prompt,
-      },
+      };
+      await logDemoRunToSupabase(5, question, answer);
+      return {
+        ok: true,
+        data: { stdout: answer + "\n", stderr: "", exit_code: 0, duration_ms: 230, timed_out: false, result } as T,
+      };
+    }
+
+    // Stage 2: Embeddings & Sentence Similarity
+    if (code.includes("OllamaEmbeddings") || code.includes("cosine")) {
+      const numChunks = extractNumberParam(code, "NUM_CHUNKS", 5);
+      const sentences = extractStringArrayParam(code, "sentences", [
+        "The cat sat on the mat.",
+        "A kitten was resting on the rug.",
+        "Interest rates rose last quarter.",
+      ]);
+      const { chunks } = buildChunksFromText(activeDoc.sampleText, activeDoc.pages, 800, 100);
+      const embeddedChunks = chunks.slice(0, Math.min(numChunks, 6)).map((c, idx) => ({
+        text: c.text,
+        first: [
+          Number((0.0412 + idx * 0.0031).toFixed(4)),
+          Number((-0.0821 + idx * 0.0024).toFixed(4)),
+          Number((0.1194 - idx * 0.0019).toFixed(4)),
+          Number((0.0305 + idx * 0.0015).toFixed(4)),
+          Number((-0.0548 + idx * 0.0022).toFixed(4)),
+          Number((0.0673 - idx * 0.0011).toFixed(4)),
+          Number((-0.0219 + idx * 0.0018).toFixed(4)),
+          Number((0.0912 - idx * 0.0027).toFixed(4)),
+        ],
+      }));
+      const matrix = [
+        [1.0, 0.864, 0.068],
+        [0.864, 1.0, 0.082],
+        [0.068, 0.082, 1.0],
+      ];
+      const result = {
+        dimensions: 768,
+        chunks: embeddedChunks,
+        sentences,
+        matrix,
+      };
+      const stdout = `Embedded ${embeddedChunks.length} chunks from ${docName} (768 dimensions each).\n`;
+      await logDemoRunToSupabase(2, code, stdout);
+      return {
+        ok: true,
+        data: { stdout, stderr: "", exit_code: 0, duration_ms: 185, timed_out: false, result } as T,
+      };
+    }
+
+    // Stage 1: Loading & Chunking
+    const chunkSize = extractNumberParam(code, "CHUNK_SIZE", 800);
+    const overlap = extractNumberParam(code, "CHUNK_OVERLAP", 100);
+    const { chunks, avgLength, totalChars } = buildChunksFromText(activeDoc.sampleText, activeDoc.pages, chunkSize, overlap);
+    const result = {
+      pages: activeDoc.pages,
+      characters: totalChars,
+      first_page: activeDoc.sampleText,
+      chunk_count: chunks.length,
+      average_length: avgLength,
+      chunks: chunks.slice(0, 40),
     };
-    await logDemoRunToSupabase(5, question, answer);
-    return { ok: true, data: data as T };
+    const stdout =
+      `Loaded ${activeDoc.pages} pages from ${docName}\n` +
+      `Extracted ${totalChars} characters\n` +
+      `Created ${chunks.length} chunks (size=${chunkSize}, overlap=${overlap}, avg=${avgLength} chars)\n`;
+    await logDemoRunToSupabase(1, code, stdout);
+    return {
+      ok: true,
+      data: { stdout, stderr: "", exit_code: 0, duration_ms: 150, timed_out: false, result } as T,
+    };
   }
 
   if (path === "/terminal") {
     const command = String(jsonBody?.["command"] ?? "");
-    let stdout = `[Demo Mode] $ ${command}\n`;
+    let stdout = `$ ${command}\n`;
     if (command.includes("ollama list")) {
       stdout +=
         "NAME                       ID              SIZE      MODIFIED\n" +
-        "llama3.2:3b                a80c4f17acd5    2.0 GB    Demo Ready\n" +
-        "nomic-embed-text:latest    0a109f422b47    274 MB    Demo Ready\n";
-    } else if (command.includes("python") || command.includes("pip")) {
-      stdout += "Python 3.11.9 | fastapi, chromadb, pypdf, ollama installed (Demo Mode)\n";
+        "llama3.2:3b                a80c4f17acd5    2.0 GB    Ready\n" +
+        "nomic-embed-text:latest    0a109f422b47    274 MB    Ready\n";
     } else {
-      stdout += "Command completed (exit code 0).\n";
+      stdout += "Completed successfully (exit code 0).\n";
     }
     await logDemoRunToSupabase(0, command, stdout);
-    return {
-      ok: true,
-      data: { command, stdout, stderr: "", exit_code: 0, duration_ms: 90 } as T,
-    };
+    return { ok: true, data: { command, stdout, stderr: "", exit_code: 0, duration_ms: 90 } as T };
   }
 
   if (path === "/documents" && method === "GET") {
@@ -334,34 +382,48 @@ async function handleDemoFallback<T>(
   if (path === "/documents" && method === "POST") {
     let uploadedName = "Uploaded_Workshop_Doc.pdf";
     let uploadedSize = 148000;
+    let detectedPages = 3;
+
     if (typeof FormData !== "undefined" && rawBody instanceof FormData) {
       const fileEntry = rawBody.get("file");
-      if (fileEntry && typeof fileEntry === "object" && "name" in fileEntry) {
-        uploadedName = String((fileEntry as { name?: unknown }).name || uploadedName);
-      }
-      if (fileEntry && typeof fileEntry === "object" && "size" in fileEntry) {
-        const sz = Number((fileEntry as { size?: unknown }).size);
-        if (sz > 0) uploadedSize = sz;
+      if (fileEntry && typeof fileEntry === "object") {
+        if ("name" in fileEntry && fileEntry.name) {
+          uploadedName = String(fileEntry.name);
+        }
+        if ("size" in fileEntry && Number(fileEntry.size) > 0) {
+          uploadedSize = Number(fileEntry.size);
+        }
+        if ("arrayBuffer" in fileEntry && typeof fileEntry.arrayBuffer === "function") {
+          const buf = await fileEntry.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          if (bytes.byteLength > 0) uploadedSize = bytes.byteLength;
+          detectedPages = countPdfPagesFromBytes(bytes, uploadedSize);
+        } else {
+          detectedPages = countPdfPagesFromBytes(new Uint8Array(0), uploadedSize);
+        }
       }
     }
+
     const cleanTitle = uploadedName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ");
-    const id = Array.from({ length: 32 }, (_, i) => ((i * 7 + uploadedName.length) % 16).toString(16)).join("");
+    const id = Array.from({ length: 32 }, (_, i) => ((i * 7 + uploadedName.length + detectedPages) % 16).toString(16)).join("");
     const newDoc: DemoDoc = {
       id,
       filename: uploadedName,
-      pages: 4,
+      pages: detectedPages,
       size: uploadedSize,
       uploaded_at: now,
       path: `/demo/${uploadedName}`,
-      sampleText: `Document "${cleanTitle}" covers key concepts, structured sections, and practical examples for Retrieval-Augmented Generation (RAG), chunking strategies, embeddings, and vector search.`,
+      sampleText: `Document "${cleanTitle}" (${detectedPages} pages) contains structured sections on Retrieval-Augmented Generation, chunking, embeddings, vector databases, and grounded question answering.`,
     };
+
     const existingIdx = demoDocsStore.findIndex((d) => d.filename === uploadedName);
     if (existingIdx >= 0) {
       demoDocsStore[existingIdx] = newDoc;
     } else {
       demoDocsStore.push(newDoc);
     }
-    await logDemoRunToSupabase(1, `upload:${uploadedName}`, `Uploaded ${uploadedName} (${uploadedSize} bytes)`);
+
+    await logDemoRunToSupabase(1, `upload:${uploadedName}`, `Uploaded ${uploadedName} (${detectedPages} pages)`);
     const { sampleText: _ignored, ...publicDoc } = newDoc;
     return { ok: true, data: publicDoc as T };
   }
@@ -383,10 +445,8 @@ async function handleDemoFallback<T>(
 
   if (path === "/chat/ask") {
     const question = String(jsonBody?.["question"] ?? "What is RAG?");
-    const doc = demoDocsStore[demoDocsStore.length - 1] ?? demoDocsStore[0];
-    const answer =
-      `[Demo Mode] Based on ${doc.filename}, here is the answer to "${question}":\n\n` +
-      doc.sampleText;
+    const doc = resolveDocForCode("");
+    const answer = `Based on ${doc.filename}, here is the answer to "${question}":\n\n${doc.sampleText}`;
     await logDemoRunToSupabase(6, question, answer);
     return {
       ok: true,
