@@ -170,10 +170,11 @@ async function callGemini(keys: string[], promptText: string, systemInstruction:
   const envModel = (process.env["GEMINI_MODEL"] || "").trim();
   const candidateModels = [
     ...(envModel ? [envModel] : []),
-    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-flash-latest",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
     "gemini-flash-lite-latest",
+    "gemini-flash-latest",
     "gemini-3.5-flash",
   ];
   const startIdx = keyCursor % keys.length;
@@ -201,7 +202,10 @@ async function callGemini(keys: string[], promptText: string, systemInstruction:
         if (!res.ok) {
           const errBody = await res.text().catch(() => "");
           lastReason = `Gemini (${model}) key#${idx + 1} HTTP ${res.status} (${errBody.slice(0, 90)})`;
-          if (res.status === 404) continue;
+          if (res.status === 404 || res.status === 503 || res.status === 429) {
+            await new Promise((r) => setTimeout(r, 250));
+            continue;
+          }
           keyCursor = (idx + 1) % keys.length;
           break;
         }
