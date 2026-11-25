@@ -170,10 +170,11 @@ async function callGemini(keys: string[], promptText: string, systemInstruction:
   const envModel = (process.env["GEMINI_MODEL"] || "").trim();
   const candidateModels = [
     ...(envModel ? [envModel] : []),
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash",
   ];
   const startIdx = keyCursor % keys.length;
   let lastReason = "Gemini: unknown error";
