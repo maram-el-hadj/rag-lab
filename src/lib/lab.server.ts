@@ -15,6 +15,14 @@ type DemoDoc = {
   sampleText: string;
 };
 
+type DemoChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: Array<{ filename: string; page: number; text: string; distance?: number; similarity?: number }>;
+  created_at: string;
+};
+
 const demoDocsStore: DemoDoc[] = [
   {
     id: "demo0000000000000000000000000001",
@@ -27,6 +35,8 @@ const demoDocsStore: DemoDoc[] = [
       "Retrieval-Augmented Generation (RAG) combines document retrieval with Large Language Models so answers stay grounded in verified sources. Splitting PDFs into overlapping chunks keeps context intact across boundaries, and vector embeddings enable semantic similarity search in ChromaDB.",
   },
 ];
+
+const demoChatHistory: DemoChatMessage[] = [];
 
 let keyCursor = 0;
 
@@ -61,7 +71,6 @@ function supabaseConfig() {
     process.env["VITE_SUPABASE_ANON_KEY"] ||
     process.env["SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["SUPABASE_ANON_KEY"] ||
-    process.env["SUPABASE_PUBLISHABLE_KEY"] ||
     ""
   ).trim();
   return { url, key };
@@ -84,7 +93,7 @@ async function logDemoRunToSupabase(stageNumber: number, prompt: string, respons
         user_prompt: prompt.slice(0, 2000),
         demo_response: responseText.slice(0, 4000),
       }),
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(3500),
     });
   } catch {
     // ignore logging issues during workshop runs
@@ -120,7 +129,7 @@ async function callOpenAICompatible(
           temperature: 0.3,
           max_tokens: 450,
         }),
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(6500),
       });
 
       if (!res.ok) {
@@ -163,7 +172,7 @@ async function callGemini(keys: string[], promptText: string, systemInstruction:
             contents: [{ role: "user", parts: [{ text: promptText }] }],
             generationConfig: { temperature: 0.3, maxOutputTokens: 450 },
           }),
-          signal: AbortSignal.timeout(12_000),
+          signal: AbortSignal.timeout(6500),
         },
       );
 
@@ -231,6 +240,22 @@ function countPdfPagesFromBytes(bytes: Uint8Array, fallbackSize: number): number
     // fallback
   }
   return Math.max(1, Math.round(fallbackSize / 45000));
+}
+
+function extractTextFromPdfBytes(bytes: Uint8Array, cleanTitle: string, detectedPages: number): string {
+  try {
+    const raw = new TextDecoder("latin1").decode(bytes);
+    const literals = [...raw.matchAll(/\(([^()\\]{3,160})\)\s*Tj/g)]
+      .map((m) => m[1].replace(/[^\x20-\x7E]/g, " ").trim())
+      .filter((s) => /[a-zA-Z]{2,}/.test(s));
+    if (literals.length >= 4) {
+      const joined = literals.join(" ").replace(/\s+/g, " ").slice(0, 1400);
+      return `Extracted content from "${cleanTitle}" (${detectedPages} pages): ${joined}`;
+    }
+  } catch {
+    // fallback
+  }
+  return `Document "${cleanTitle}" (${detectedPages} pages) contains structured sections on Retrieval-Augmented Generation, chunking, embeddings, vector databases, and grounded question answering.`;
 }
 
 function extractNumberParam(code: string, name: string, fallback: number): number {
@@ -424,6 +449,7 @@ async function handleDemoFallback<T>(
     let uploadedName = "Uploaded_Workshop_Doc.pdf";
     let uploadedSize = 148000;
     let detectedPages = 3;
+    let extractedText = "";
     if (typeof FormData !== "undefined" && rawBody instanceof FormData) {
       const fileEntry = rawBody.get("file");
       if (fileEntry && typeof fileEntry === "object") {
@@ -434,6 +460,8 @@ async function handleDemoFallback<T>(
           const bytes = new Uint8Array(buf);
           if (bytes.byteLength > 0) uploadedSize = bytes.byteLength;
           detectedPages = countPdfPagesFromBytes(bytes, uploadedSize);
+          const cleanTitle = uploadedName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ");
+          extractedText = extractTextFromPdfBytes(bytes, cleanTitle, detectedPages);
         } else {
           detectedPages = countPdfPagesFromBytes(new Uint8Array(0), uploadedSize);
         }
@@ -448,7 +476,9 @@ async function handleDemoFallback<T>(
       size: uploadedSize,
       uploaded_at: now,
       path: `/demo/${uploadedName}`,
-      sampleText: `Document "${cleanTitle}" (${detectedPages} pages) contains structured sections on Retrieval-Augmented Generation, chunking, embeddings, vector databases, and grounded question answering.`,
+      sampleText:
+        extractedText ||
+        `Document "${cleanTitle}" (${detectedPages} pages) contains structured sections on Retrieval-Augmented Generation, chunking, embeddings, vector databases, and grounded question answering.`,
     };
     const existingIdx = demoDocsStore.findIndex((d) => d.filename === uploadedName);
     if (existingIdx >= 0) demoDocsStore[existingIdx] = newDoc;
@@ -473,18 +503,39 @@ async function handleDemoFallback<T>(
 
   if (path === "/chat/ask") {
     const question = String(jsonBody?.["question"] ?? "What is RAG?");
-    const doc = resolveDocForCode("");
+    const allContext = demoDocsStore.map((d) => `[${d.filename} (${d.pages}p)]: ${d.sampleText}`).join("\n\n");
+    const primaryDoc = resolveDocForCode("");
     const liveAnswer = await askCloudLLMWithRotation(
-      `Document: ${doc.filename} (${doc.pages} pages)\nExcerpt: ${doc.sampleText}\nQuestion: ${question}`,
-      "Answer clearly and concisely based on the document excerpt.",
+      `Documents:\n${allContext}\n\nQuestion: ${question}`,
+      "Answer clearly and concisely based on the uploaded documents.",
     );
-    const answer = liveAnswer || `Based on ${doc.filename}, here is the answer to "${question}":\n\n${doc.sampleText}`;
+    const answer =
+      liveAnswer ||
+      `Based on your uploaded documents (${demoDocsStore.map((d) => d.filename).join(", ")}), here is the answer to "${question}":\n\n${primaryDoc.sampleText}`;
+    const sources = demoDocsStore.slice(-2).map((d) => ({
+      filename: d.filename,
+      page: 1,
+      text: d.sampleText,
+      distance: 0.12,
+      similarity: 0.89,
+    }));
+
+    demoChatHistory.push(
+      { id: `u-${Date.now()}`, role: "user", content: question, created_at: now },
+      { id: `a-${Date.now() + 1}`, role: "assistant", content: answer, sources, created_at: now },
+    );
+
     await logDemoRunToSupabase(6, question, answer);
-    return { ok: true, data: { answer, sources: [{ filename: doc.filename, page: 1, text: doc.sampleText, distance: 0.12 }], duration_ms: 280 } as T };
+    return { ok: true, data: { answer, sources, duration_ms: 280 } as T };
   }
 
   if (path === "/chat/history" && method === "GET") {
-    return { ok: true, data: { messages: [] } as T };
+    return { ok: true, data: { messages: demoChatHistory } as T };
+  }
+
+  if (path === "/chat/history" && method === "DELETE") {
+    demoChatHistory.length = 0;
+    return { ok: true, data: { ok: true } as T };
   }
 
   return { ok: true, data: { ok: true } as T };
