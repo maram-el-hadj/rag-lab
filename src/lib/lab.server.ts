@@ -167,48 +167,58 @@ async function callOpenAICompatible(
 
 async function callGemini(keys: string[], promptText: string, systemInstruction: string): Promise<{ text: string | null; reason: string }> {
   if (keys.length === 0) return { text: null, reason: "Gemini: no keys configured" };
-  const model = (process.env["GEMINI_MODEL"] || "gemini-2.5-flash").trim();
+  const envModel = (process.env["GEMINI_MODEL"] || "").trim();
+  const candidateModels = [
+    ...(envModel ? [envModel] : []),
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+  ];
   const startIdx = keyCursor % keys.length;
   let lastReason = "Gemini: unknown error";
 
   for (let offset = 0; offset < keys.length; offset++) {
     const idx = (startIdx + offset) % keys.length;
     const apiKey = keys[idx];
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-            contents: [{ role: "user", parts: [{ text: promptText }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 450 },
-          }),
-          signal: AbortSignal.timeout(8000),
-        },
-      );
+    for (const model of candidateModels) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: systemInstruction }] },
+              contents: [{ role: "user", parts: [{ text: promptText }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 450 },
+            }),
+            signal: AbortSignal.timeout(8000),
+          },
+        );
 
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => "");
-        lastReason = `Gemini key#${idx + 1} HTTP ${res.status} (${errBody.slice(0, 110)})`;
-        keyCursor = (idx + 1) % keys.length;
-        continue;
-      }
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "");
+          lastReason = `Gemini (${model}) key#${idx + 1} HTTP ${res.status} (${errBody.slice(0, 90)})`;
+          if (res.status === 404) continue;
+          keyCursor = (idx + 1) % keys.length;
+          break;
+        }
 
-      const data = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      const out = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
-      if (out) {
+        const data = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const out = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+        if (out) {
+          keyCursor = (idx + 1) % keys.length;
+          return { text: out, reason: "ok" };
+        }
+        lastReason = `Gemini (${model}) key#${idx + 1} empty response`;
+      } catch (err) {
+        lastReason = `Gemini (${model}) key#${idx + 1} error (${err instanceof Error ? err.message : "error"})`;
         keyCursor = (idx + 1) % keys.length;
-        return { text: out, reason: "ok" };
+        break;
       }
-      lastReason = `Gemini key#${idx + 1} empty response`;
-    } catch (err) {
-      lastReason = `Gemini key#${idx + 1} network/timeout (${err instanceof Error ? err.message : "error"})`;
-      keyCursor = (idx + 1) % keys.length;
-      continue;
     }
   }
   return { text: null, reason: lastReason };
