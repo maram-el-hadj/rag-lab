@@ -1,10 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
+  "services": {
+    "app": {
+      "root": ".",
+      "framework": "tanstack-start"
+    },
+    "rag-backend": {
+      "root": "rag-backend",
+      "framework": "fastapi"
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/"
+      "destination": {
+        "service": "app"
+      }
     }
   ]
 }
