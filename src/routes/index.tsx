@@ -38,9 +38,9 @@ function Welcome() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <AppHeader />
-      <main className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+      <main className="mx-auto w-full min-w-0 max-w-6xl px-4 pb-16 sm:px-6">
         <section className="grid items-center gap-8 pt-10 lg:grid-cols-[auto_1fr] lg:gap-12 lg:pt-16">
           <Robot
             size="lg"

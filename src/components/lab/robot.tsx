@@ -31,7 +31,7 @@ export function Robot({
 }) {
   const img = size === "lg" ? "h-44 sm:h-56" : size === "sm" ? "h-16" : "h-28";
   return (
-    <div className={cn("flex gap-2", stacked ? "flex-col items-start" : "items-end", className)}>
+    <div className={cn("flex gap-2", stacked ? "flex-col items-start" : "items-end max-sm:flex-col max-sm:items-center", className)}>
       <RobotImage mood={mood} className={cn(img, "w-auto shrink-0 animate-float")} />
       {message && (
         <div
@@ -39,7 +39,7 @@ export function Robot({
           role="status"
           className={cn(
             "relative max-w-[15rem] animate-rise rounded-2xl border bg-card px-3.5 py-2.5 text-sm font-medium shadow-card",
-            stacked ? "ml-4" : "mb-6",
+            stacked ? "ml-4" : "mb-6 max-sm:mb-0",
             mood === "happy" && "border-success/40",
             mood === "angry" && "border-destructive/40",
           )}

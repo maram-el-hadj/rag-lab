@@ -26,7 +26,7 @@ export const Route = createFileRoute("/dashboard")({
 
 function Dashboard() {
   const p = useParticipant();
-  if (p === undefined) return <div className="min-h-screen" />;
+  if (p === undefined) return <div className="min-h-screen overflow-x-hidden" />;
   if (p === null) return <Navigate to="/" />;
 
   const done = completedCount(p);
@@ -36,11 +36,11 @@ function Dashboard() {
   const totalScore = scored.reduce((a, b) => a + b, 0);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <AppHeader />
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
-        <section className="surface flex flex-col items-center gap-6 overflow-hidden p-6 sm:flex-row sm:p-8">
-          <div className="flex-1 animate-rise">
+      <main className="mx-auto w-full min-w-0 max-w-6xl space-y-6 px-4 py-8 sm:px-6">
+        <section className="surface min-w-0 max-w-full flex flex-col items-center gap-6 overflow-hidden p-6 sm:flex-row sm:p-8">
+          <div className="min-w-0 max-w-full flex-1 animate-rise">
             <p className="font-display text-xs font-bold uppercase tracking-[0.2em] text-primary">Dashboard</p>
             <h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Welcome, {p.name}!</h1>
             <p className="mt-2 text-muted-foreground">
@@ -64,13 +64,13 @@ function Dashboard() {
           <Robot mood={done > 0 ? "happy" : "normal"} message={allDone ? "You did it! 🎉" : done > 0 ? "Great progress! Keep going." : "Let's explore RAG together!"} />
         </section>
 
-        <section className="surface p-5 sm:p-8">
+        <section className="surface min-w-0 max-w-full p-5 sm:p-8">
           <h2 className="mb-6 text-xl font-bold">Learning path</h2>
           <StagePath participant={p} />
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-          <section className="surface p-5 sm:p-6">
+        <div className="grid min-w-0 max-w-full gap-6 lg:grid-cols-[1fr_20rem]">
+          <section className="surface min-w-0 max-w-full p-5 sm:p-6">
             <div className="mb-4 flex items-center gap-2">
               <Trophy className="size-5 text-primary" />
               <h2 className="text-lg font-bold">Quiz scores</h2>

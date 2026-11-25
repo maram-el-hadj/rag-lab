@@ -44,7 +44,7 @@ export const Route = createFileRoute("/stage/$stageId")({
 function StagePage() {
   const { id } = Route.useLoaderData();
   const p = useParticipant();
-  if (p === undefined) return <div className="min-h-screen" />;
+  if (p === undefined) return <div className="min-h-screen overflow-x-hidden" />;
   if (p === null) return <Navigate to="/" />;
   const stage = getStage(id)!;
   if (!isUnlocked(p, id)) return <Locked stage={stage} />;
@@ -53,7 +53,7 @@ function StagePage() {
 
 function Locked({ stage }: { stage: Stage }) {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <AppHeader />
       <main className="mx-auto grid max-w-lg place-items-center px-4 py-20 text-center">
         <span className="grid size-16 place-items-center rounded-full bg-muted text-muted-foreground">
@@ -135,13 +135,13 @@ function StageContent({ stage, sessionId }: { stage: Stage; sessionId: string })
   );
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <AppHeader />
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+      <div className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6">
         {/* Stage header */}
-        <div className="surface mb-6 flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:p-7">
+        <div className="surface mb-6 min-w-0 max-w-full flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:p-7">
           <StageBadge id={stage.id} className="size-16 shrink-0 shadow-soft" />
-          <div className="flex-1">
+          <div className="min-w-0 max-w-full flex-1">
             <p className={cn("font-display text-xs font-bold uppercase tracking-[0.2em]", STAGE_TEXT[stage.id])}>Stage {stage.id}</p>
             <h1 className="text-3xl font-extrabold sm:text-4xl">{stage.title}</h1>
             <p className="mt-1 text-muted-foreground">
@@ -153,7 +153,7 @@ function StageContent({ stage, sessionId }: { stage: Stage; sessionId: string })
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
+        <div className="grid min-w-0 max-w-full gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
           {/* Sidebar */}
           <aside className="hidden lg:block">
             <div className="sticky top-24 space-y-5">
@@ -208,7 +208,7 @@ function StageContent({ stage, sessionId }: { stage: Stage; sessionId: string })
                   </ol>
                   <dl className="mt-5 grid gap-3 sm:grid-cols-2">
                     {stage.concepts.map((c) => (
-                      <div key={c.term} className="rounded-xl border p-3">
+                      <div key={c.term} className="min-w-0 max-w-full rounded-xl border p-3">
                         <dt className="font-mono text-sm font-semibold text-primary">{c.term}</dt>
                         <dd className="mt-0.5 text-sm text-muted-foreground">{c.text}</dd>
                       </div>
@@ -241,7 +241,7 @@ function StageContent({ stage, sessionId }: { stage: Stage; sessionId: string })
                       ["Ask something unrelated", "Your chatbot should reply that it couldn't find enough information in your documents, and show no sources."],
                       ["Add a second PDF", "Upload another document, rebuild, and ask a question that needs both."],
                     ].map(([t, d]) => (
-                      <li key={t} className="rounded-xl border p-4">
+                      <li key={t} className="min-w-0 max-w-full rounded-xl border p-4">
                         <p className="font-semibold">{t}</p>
                         <p className="mt-1 text-sm text-muted-foreground">{d}</p>
                       </li>

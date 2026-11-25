@@ -26,7 +26,7 @@ export function LabStatus() {
   const allGood = !!h && h.ready;
 
   return (
-    <div className="surface p-5">
+    <div className="surface min-w-0 max-w-full p-5">
       <div className="mb-3 flex items-center gap-2">
         <Server className="size-5 text-primary" />
         <h3 className="text-base font-semibold">Lab server</h3>
@@ -49,7 +49,7 @@ export function LabStatus() {
             ? "The local Python lab server isn't running. Lessons and quizzes work, but running code waits until you start it."
             : data.error}
           {data.notConfigured && (
-            <code className="mt-2 block rounded-lg bg-code px-3 py-2 font-mono text-xs text-code-foreground">start.bat &nbsp;(Windows) &nbsp;·&nbsp; ./start.sh &nbsp;(Mac / Linux)</code>
+            <code className="mt-2 block max-w-full overflow-x-auto rounded-lg bg-code px-3 py-2 font-mono text-xs text-code-foreground">start.bat &nbsp;(Windows) &nbsp;·&nbsp; ./start.sh &nbsp;(Mac / Linux)</code>
           )}
         </p>
       ) : h ? (
@@ -61,7 +61,7 @@ export function LabStatus() {
           {h.ollama.commands.length > 0 && (
             <li className="text-sm">
               <p className="mb-1 font-semibold">Run this in a terminal, then reload:</p>
-              <code className="block whitespace-pre rounded-lg bg-code px-3 py-2 font-mono text-xs text-code-foreground">{h.ollama.commands.join("\n")}</code>
+              <code className="block max-w-full overflow-x-auto whitespace-pre rounded-lg bg-code px-3 py-2 font-mono text-xs text-code-foreground">{h.ollama.commands.join("\n")}</code>
             </li>
           )}
           {h.ollama.reachable &&

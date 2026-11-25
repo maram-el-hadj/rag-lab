@@ -35,8 +35,8 @@ export function CodeLesson({ blocks, values }: { blocks: CodeBlock[]; values: Pa
   let lineNo = 0;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
-      <div className="space-y-5">
+    <div className="grid min-w-0 max-w-full gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="min-w-0 max-w-full space-y-5">
         {blocks.map((block, bi) => (
           <div key={block.title}>
             <h4 className="flex items-center gap-2 text-base font-semibold">
@@ -44,7 +44,7 @@ export function CodeLesson({ blocks, values }: { blocks: CodeBlock[]; values: Pa
               {block.title}
             </h4>
             <p className="mb-2 mt-1 text-sm text-muted-foreground">{block.purpose}</p>
-            <div className="overflow-x-auto rounded-xl bg-code py-3 font-mono text-[13px] leading-6 text-code-foreground">
+            <div className="max-w-full overflow-x-auto rounded-xl bg-code py-3 font-mono text-[13px] leading-6 text-code-foreground">
               {block.lines.map((line, li) => {
                 lineNo += 1;
                 const has = !!lineNote(line);
@@ -75,8 +75,8 @@ export function CodeLesson({ blocks, values }: { blocks: CodeBlock[]; values: Pa
         ))}
       </div>
 
-      <aside className="lg:sticky lg:top-24 lg:self-start">
-        <div className="rounded-xl border bg-secondary/60 p-4">
+      <aside className="min-w-0 max-w-full lg:sticky lg:top-24 lg:self-start">
+        <div className="min-w-0 max-w-full rounded-xl border bg-secondary/60 p-4">
           <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-secondary-foreground">
             <Info className="size-3.5" /> Line explanation
           </p>

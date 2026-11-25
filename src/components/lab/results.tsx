@@ -8,7 +8,7 @@ const arr = <T,>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-xl border bg-card p-3">
+    <div className="min-w-0 max-w-full rounded-xl border bg-card p-3">
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 font-display text-2xl font-semibold">{value}</p>
     </div>
@@ -40,16 +40,18 @@ export function StageResult({ stage, result }: { stage: number; result: R }) {
           <Stat label="Chat model" value={str(result["chat_model"])} />
           <Stat label="Embedding model" value={str(result["embed_model"])} />
         </div>
-        <table className="w-full overflow-hidden rounded-xl border text-sm">
-          <tbody>
-            {Object.entries(pk).map(([k, v]) => (
-              <tr key={k} className="border-b last:border-0">
-                <td className="px-3 py-2 font-mono">{k}</td>
-                <td className="px-3 py-2 text-right font-mono text-muted-foreground">{v}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="min-w-0 max-w-full overflow-x-auto rounded-xl border">
+          <table className="w-full text-sm">
+            <tbody>
+              {Object.entries(pk).map(([k, v]) => (
+                <tr key={k} className="border-b last:border-0">
+                  <td className="px-3 py-2 font-mono">{k}</td>
+                  <td className="px-3 py-2 text-right font-mono text-muted-foreground">{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div className="flex flex-wrap gap-2">
           {models.map((m) => (
             <span key={m} className="rounded-full bg-secondary px-3 py-1 font-mono text-xs">{m}</span>
@@ -69,15 +71,15 @@ export function StageResult({ stage, result }: { stage: number; result: R }) {
           <Stat label="Chunks" value={num(result["chunk_count"])} />
           <Stat label="Avg. chunk" value={`${num(result["average_length"])} ch`} />
         </div>
-        <details className="rounded-xl border bg-card p-3">
+        <details className="min-w-0 max-w-full rounded-xl border bg-card p-3">
           <summary className="cursor-pointer text-sm font-semibold">Extracted text of page 1</summary>
-          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{str(result["first_page"]) || "(no text on this page)"}</pre>
+          <pre className="mt-2 max-h-64 max-w-full overflow-x-auto overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground">{str(result["first_page"]) || "(no text on this page)"}</pre>
         </details>
         <div>
           <p className="mb-2 text-sm font-semibold">Chunks {chunks.length < num(result["chunk_count"]) && <span className="font-normal text-muted-foreground">(first {chunks.length})</span>}</p>
-          <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+          <div className="grid max-h-[28rem] min-w-0 max-w-full gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
             {chunks.map((c) => (
-              <div key={c.index} className="rounded-xl border bg-card p-3">
+              <div key={c.index} className="min-w-0 max-w-full rounded-xl border bg-card p-3">
                 <p className="mb-1 flex justify-between text-xs font-semibold text-primary">
                   <span>Chunk {c.index}</span>
                   <span className="text-muted-foreground">{c.length} characters</span>
@@ -103,7 +105,7 @@ export function StageResult({ stage, result }: { stage: number; result: R }) {
         </div>
         <div className="space-y-2">
           {chunks.map((c, i) => (
-            <div key={i} className="rounded-xl border bg-card p-3">
+            <div key={i} className="min-w-0 max-w-full rounded-xl border bg-card p-3">
               <p className="line-clamp-2 text-xs text-muted-foreground">{c.text}</p>
               <p className="mt-1.5 overflow-x-auto whitespace-nowrap font-mono text-xs text-primary">[{c.first.join(", ")}, …]</p>
             </div>
@@ -193,7 +195,7 @@ export function StageResult({ stage, result }: { stage: number; result: R }) {
           Question vector: {num(result["dimensions"])} numbers. Most similar chunks:
         </p>
         {hits.map((h) => (
-          <div key={h.rank} className="rounded-xl border bg-card p-3">
+          <div key={h.rank} className="min-w-0 max-w-full rounded-xl border bg-card p-3">
             <div className="mb-2 flex items-center gap-3 text-xs">
               <span className="font-display text-base font-bold text-primary">#{h.rank}</span>
               <span className="font-semibold">{h.source} · page {h.page}</span>
@@ -231,7 +233,7 @@ export function StageResult({ stage, result }: { stage: number; result: R }) {
         {str(result["prompt"]) && (
           <details className="rounded-xl border bg-card p-3">
             <summary className="cursor-pointer text-sm font-semibold">See the full prompt sent to the LLM</summary>
-            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{str(result["prompt"])}</pre>
+            <pre className="mt-2 max-h-72 max-w-full overflow-x-auto overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground">{str(result["prompt"])}</pre>
           </details>
         )}
       </div>

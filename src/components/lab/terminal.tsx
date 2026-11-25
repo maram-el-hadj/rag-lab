@@ -56,15 +56,15 @@ export function LabTerminal({ sessionId, onSuccess }: { sessionId: string; onSuc
   return (
     <div className="space-y-3">
       {notConfigured && <NotConnected />}
-      <div className="overflow-hidden rounded-xl bg-code text-code-foreground">
+      <div className="min-w-0 max-w-full overflow-hidden rounded-xl bg-code text-code-foreground">
         <div className="flex items-center gap-2 border-b border-code-highlight px-4 py-2 text-xs text-code-muted">
           <TerminalSquare className="size-4" /> Lab terminal — commands run on your local RAG LAB server
         </div>
-        <div className="max-h-96 min-h-40 overflow-y-auto px-4 py-3 font-mono text-[13px] leading-6">
+        <div className="max-h-96 min-h-40 min-w-0 max-w-full overflow-x-auto overflow-y-auto px-4 py-3 font-mono text-[13px] leading-6">
           {entries.length === 0 && <p className="text-code-muted">Type a command below or click one of the suggestions.</p>}
           {entries.map((en, i) => (
-            <div key={i} className="mb-2">
-              <p>
+            <div key={i} className="mb-2 min-w-0 max-w-full">
+              <p className="whitespace-pre">
                 <span className="text-stage-3">$</span> {en.command}
               </p>
               {en.pending && (
@@ -95,16 +95,16 @@ export function LabTerminal({ sessionId, onSuccess }: { sessionId: string; onSuc
           </button>
         </form>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-2 sm:grid-cols-2">
         {SUGGESTED.map((s) => (
           <button
             key={s.cmd}
             type="button"
             disabled={busy}
             onClick={() => run(s.cmd)}
-            className="rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:border-primary disabled:opacity-50"
+            className="min-w-0 max-w-full rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:border-primary disabled:opacity-50"
           >
-            <code className="block truncate font-mono text-xs text-primary">{s.cmd}</code>
+            <code className="block whitespace-normal break-words font-mono text-xs text-primary">{s.cmd}</code>
             <span className="text-xs text-muted-foreground">{s.what}</span>
           </button>
         ))}

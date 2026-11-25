@@ -126,7 +126,7 @@ export function LabRunner({
             {tab === "result" && last.out.result ? (
               <StageResult stage={stage.id} result={last.out.result} />
             ) : (
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl bg-code p-4 font-mono text-xs leading-5 text-code-foreground">
+              <pre className="max-h-96 max-w-full overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-xl bg-code p-4 font-mono text-xs leading-5 text-code-foreground">
                 {last.out.stdout || (last.out.stderr ? "" : "(no output)")}
                 {last.out.stderr && <span className="text-stage-1">{last.out.stderr}</span>}
               </pre>
@@ -186,7 +186,7 @@ export function LabRunner({
           <div className="mt-5">{runButton("Run with these values")}</div>
 
           {runs.filter((r) => r.out.exit_code === 0).length > 0 && (
-            <div className="mt-6 overflow-x-auto">
+            <div className="mt-6 max-w-full overflow-x-auto">
               <p className="mb-2 text-sm font-semibold">Compare your runs</p>
               <table className="w-full min-w-max text-left text-xs">
                 <thead className="bg-muted">

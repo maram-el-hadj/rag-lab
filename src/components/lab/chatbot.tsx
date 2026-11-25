@@ -90,10 +90,10 @@ export function Chatbot({ sessionId, onAnswered }: { sessionId: string; onAnswer
   if (docs.data && !docs.data.ok) return docs.data.notConfigured ? <NotConnected /> : <LabError message={docs.data.error} />;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[19rem_minmax(0,1fr)]">
+    <div className="grid min-w-0 max-w-full gap-5 lg:grid-cols-[19rem_minmax(0,1fr)]">
       {/* Knowledge base */}
-      <div className="space-y-4">
-        <div className="rounded-xl border bg-card p-4">
+      <div className="min-w-0 max-w-full space-y-4">
+        <div className="min-w-0 max-w-full rounded-xl border bg-card p-4">
           <p className="mb-2 text-sm font-semibold">1. Your documents</p>
           {docList.length === 0 ? (
             <p className="mb-3 text-sm text-muted-foreground">Add one or more PDFs.</p>
@@ -124,7 +124,7 @@ export function Chatbot({ sessionId, onAnswered }: { sessionId: string; onAnswer
           <UploadButton sessionId={sessionId} multiple onUploaded={() => setStale(true)} />
         </div>
 
-        <div className="rounded-xl border bg-card p-4">
+        <div className="min-w-0 max-w-full rounded-xl border bg-card p-4">
           <p className="mb-3 text-sm font-semibold">2. Build knowledge base</p>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -197,8 +197,8 @@ export function Chatbot({ sessionId, onAnswered }: { sessionId: string; onAnswer
       </div>
 
       {/* Chat */}
-      <div className="flex min-h-[28rem] flex-col rounded-xl border bg-muted/40">
-        <div className="flex-1 space-y-4 overflow-y-auto p-4" style={{ maxHeight: "34rem" }}>
+      <div className="flex min-h-[28rem] min-w-0 max-w-full flex-col rounded-xl border bg-muted/40">
+        <div className="min-w-0 max-w-full flex-1 space-y-4 overflow-y-auto p-4" style={{ maxHeight: "34rem" }}>
           {messages.length === 0 && !pending && (
             <div className="grid h-full place-items-center py-16 text-center text-sm text-muted-foreground">
               <div>
@@ -220,13 +220,13 @@ export function Chatbot({ sessionId, onAnswered }: { sessionId: string; onAnswer
           )}
           <div ref={end} />
         </div>
-        <form onSubmit={submit} className="flex items-center gap-2 border-t bg-card p-3">
-          <Input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about your documents…" maxLength={4000} aria-label="Your question" />
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+        <form onSubmit={submit} className="flex min-w-0 items-center gap-2 border-t bg-card p-3">
+          <Input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about your documents..." maxLength={4000} aria-label="Your question" className="min-w-0 flex-1" />
+          <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
             Top-K
-            <Input type="number" min={1} max={20} value={topK} onChange={(e) => setTopK(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} className="h-9 w-16" />
+            <Input type="number" min={1} max={20} value={topK} onChange={(e) => setTopK(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} className="h-9 w-14 shrink-0 sm:w-16" />
           </label>
-          <Button type="submit" variant="hero" size="icon" disabled={!question.trim() || !!pending} aria-label="Send">
+          <Button type="submit" variant="hero" size="icon" className="shrink-0" disabled={!question.trim() || !!pending} aria-label="Send">
             <Send />
           </Button>
         </form>
@@ -238,12 +238,12 @@ export function Chatbot({ sessionId, onAnswered }: { sessionId: string; onAnswer
 function Bubble({ m }: { m: ChatMessage }) {
   const user = m.role === "user";
   return (
-    <div className={cn("flex gap-2", user && "flex-row-reverse")}>
+    <div className={cn("flex min-w-0 max-w-full gap-2", user && "flex-row-reverse")}>
       <span className={cn("grid size-8 shrink-0 place-items-center rounded-full", user ? "bg-primary text-primary-foreground" : "bg-card text-primary shadow-sm")}>
         {user ? <User className="size-4" /> : <Bot className="size-4" />}
       </span>
-      <div className={cn("max-w-[85%] rounded-2xl px-4 py-2.5 text-sm", user ? "bg-primary text-primary-foreground" : "bg-card shadow-sm")}>
-        <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
+      <div className={cn("min-w-0 max-w-[85%] rounded-2xl px-4 py-2.5 text-sm", user ? "bg-primary text-primary-foreground" : "bg-card shadow-sm")}>
+        <p className="break-words whitespace-pre-wrap leading-relaxed">{m.content}</p>
         {!user && m.sources.length > 0 && (
           <details className="mt-2 text-xs">
             <summary className="cursor-pointer font-semibold text-primary">
@@ -251,9 +251,9 @@ function Bubble({ m }: { m: ChatMessage }) {
             </summary>
             <ul className="mt-2 space-y-2">
               {m.sources.map((s, i) => (
-                <li key={i} className="rounded-lg bg-muted p-2">
+                <li key={i} className="min-w-0 max-w-full rounded-lg bg-muted p-2">
                   <p className="font-semibold">
-                    {s.filename} · page {s.page} <span className="font-mono font-normal text-muted-foreground">similarity {(1 - s.distance).toFixed(3)}</span>
+                    <span className="break-words">{s.filename}</span> · page {s.page} <span className="font-mono font-normal text-muted-foreground">similarity {(1 - s.distance).toFixed(3)}</span>
                   </p>
                   <p className="mt-1 line-clamp-4 text-muted-foreground">{s.text}</p>
                 </li>

@@ -20,6 +20,17 @@ const KEY = "raglab.participant.v1";
 const listeners = new Set<() => void>();
 let cache: Participant | null | undefined;
 
+function safeUUID(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // fallback below
+  }
+  return "id-" + Math.random().toString(36).slice(2, 11) + "-" + Date.now().toString(36);
+}
+
 function read(): Participant | null {
   if (cache !== undefined) return cache;
   if (typeof window === "undefined") return null;
@@ -34,8 +45,12 @@ function read(): Participant | null {
 
 function write(p: Participant | null) {
   cache = p;
-  if (p) window.localStorage.setItem(KEY, JSON.stringify(p));
-  else window.localStorage.removeItem(KEY);
+  try {
+    if (p) window.localStorage.setItem(KEY, JSON.stringify(p));
+    else window.localStorage.removeItem(KEY);
+  } catch {
+    // ignore storage errors in restricted browser modes
+  }
   listeners.forEach((l) => l());
 }
 
@@ -54,7 +69,6 @@ function subscribe(l: () => void) {
   };
 }
 
-/** undefined while hydrating on the client/server, null when no participant yet. */
 export function useParticipant(): Participant | null | undefined {
   return useSyncExternalStore(
     subscribe,
@@ -73,7 +87,7 @@ export function stageProgress(p: Participant | null | undefined, stage: number):
 
 export function createParticipant(name: string): Participant {
   const p: Participant = {
-    id: crypto.randomUUID(),
+    id: safeUUID(),
     name: name.trim().slice(0, 40),
     createdAt: new Date().toISOString(),
     stages: {},
@@ -107,7 +121,6 @@ export function recordQuizScore(stage: number, score: number) {
   updateStage(stage, (s) => ({ ...s, quizScore: Math.max(score, s.quizScore ?? 0) }));
 }
 
-/** A stage is unlocked when it's the first one or the previous one is completed. */
 export function isUnlocked(p: Participant | null | undefined, stage: number): boolean {
   if (stage === 0) return true;
   return stageProgress(p, stage - 1).completed;
