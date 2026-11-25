@@ -23,6 +23,12 @@ type DemoChatMessage = {
   created_at: string;
 };
 
+type CloudCallOutcome = {
+  text: string | null;
+  providerUsed: string | null;
+  diagnostic: string;
+};
+
 const demoDocsStore: DemoDoc[] = [
   {
     id: "demo0000000000000000000000000001",
@@ -101,14 +107,16 @@ async function logDemoRunToSupabase(stageNumber: number, prompt: string, respons
 }
 
 async function callOpenAICompatible(
+  providerName: string,
   endpoint: string,
   model: string,
   keys: string[],
   promptText: string,
   systemInstruction: string,
-): Promise<string | null> {
-  if (keys.length === 0) return null;
+): Promise<{ text: string | null; reason: string }> {
+  if (keys.length === 0) return { text: null, reason: `${providerName}: no keys configured` };
   const startIdx = keyCursor % keys.length;
+  let lastReason = `${providerName}: unknown error`;
 
   for (let offset = 0; offset < keys.length; offset++) {
     const idx = (startIdx + offset) % keys.length;
@@ -129,10 +137,12 @@ async function callOpenAICompatible(
           temperature: 0.3,
           max_tokens: 450,
         }),
-        signal: AbortSignal.timeout(6500),
+        signal: AbortSignal.timeout(8000),
       });
 
       if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        lastReason = `${providerName} key#${idx + 1} HTTP ${res.status} (${errBody.slice(0, 110)})`;
         keyCursor = (idx + 1) % keys.length;
         continue;
       }
@@ -143,20 +153,23 @@ async function callOpenAICompatible(
       const out = data?.choices?.[0]?.message?.content?.trim();
       if (out) {
         keyCursor = (idx + 1) % keys.length;
-        return out;
+        return { text: out, reason: "ok" };
       }
-    } catch {
+      lastReason = `${providerName} key#${idx + 1} empty response`;
+    } catch (err) {
+      lastReason = `${providerName} key#${idx + 1} network/timeout (${err instanceof Error ? err.message : "error"})`;
       keyCursor = (idx + 1) % keys.length;
       continue;
     }
   }
-  return null;
+  return { text: null, reason: lastReason };
 }
 
-async function callGemini(keys: string[], promptText: string, systemInstruction: string): Promise<string | null> {
-  if (keys.length === 0) return null;
+async function callGemini(keys: string[], promptText: string, systemInstruction: string): Promise<{ text: string | null; reason: string }> {
+  if (keys.length === 0) return { text: null, reason: "Gemini: no keys configured" };
   const model = (process.env["GEMINI_MODEL"] || "gemini-2.5-flash").trim();
   const startIdx = keyCursor % keys.length;
+  let lastReason = "Gemini: unknown error";
 
   for (let offset = 0; offset < keys.length; offset++) {
     const idx = (startIdx + offset) % keys.length;
@@ -172,11 +185,13 @@ async function callGemini(keys: string[], promptText: string, systemInstruction:
             contents: [{ role: "user", parts: [{ text: promptText }] }],
             generationConfig: { temperature: 0.3, maxOutputTokens: 450 },
           }),
-          signal: AbortSignal.timeout(6500),
+          signal: AbortSignal.timeout(8000),
         },
       );
 
       if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        lastReason = `Gemini key#${idx + 1} HTTP ${res.status} (${errBody.slice(0, 110)})`;
         keyCursor = (idx + 1) % keys.length;
         continue;
       }
@@ -187,48 +202,61 @@ async function callGemini(keys: string[], promptText: string, systemInstruction:
       const out = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
       if (out) {
         keyCursor = (idx + 1) % keys.length;
-        return out;
+        return { text: out, reason: "ok" };
       }
-    } catch {
+      lastReason = `Gemini key#${idx + 1} empty response`;
+    } catch (err) {
+      lastReason = `Gemini key#${idx + 1} network/timeout (${err instanceof Error ? err.message : "error"})`;
       keyCursor = (idx + 1) % keys.length;
       continue;
     }
   }
-  return null;
+  return { text: null, reason: lastReason };
 }
 
-async function askCloudLLMWithRotation(promptText: string, systemInstruction: string): Promise<string | null> {
+async function askCloudLLMWithRotation(promptText: string, systemInstruction: string): Promise<CloudCallOutcome> {
+  const reasons: string[] = [];
+
   const ds = deepseekKeys();
   if (ds.length > 0) {
-    const out = await callOpenAICompatible(
+    const res = await callOpenAICompatible(
+      "DeepSeek",
       "https://api.deepseek.com/chat/completions",
       (process.env["DEEPSEEK_MODEL"] || "deepseek-chat").trim(),
       ds,
       promptText,
       systemInstruction,
     );
-    if (out) return out;
+    if (res.text) return { text: res.text, providerUsed: "DeepSeek", diagnostic: "ok" };
+    reasons.push(res.reason);
   }
 
   const oa = openaiKeys();
   if (oa.length > 0) {
-    const out = await callOpenAICompatible(
+    const res = await callOpenAICompatible(
+      "OpenAI",
       "https://api.openai.com/v1/chat/completions",
       (process.env["OPENAI_MODEL"] || "gpt-4o-mini").trim(),
       oa,
       promptText,
       systemInstruction,
     );
-    if (out) return out;
+    if (res.text) return { text: res.text, providerUsed: "OpenAI", diagnostic: "ok" };
+    reasons.push(res.reason);
   }
 
   const gm = geminiKeys();
   if (gm.length > 0) {
-    const out = await callGemini(gm, promptText, systemInstruction);
-    if (out) return out;
+    const res = await callGemini(gm, promptText, systemInstruction);
+    if (res.text) return { text: res.text, providerUsed: "Gemini", diagnostic: "ok" };
+    reasons.push(res.reason);
   }
 
-  return null;
+  return {
+    text: null,
+    providerUsed: null,
+    diagnostic: reasons.length > 0 ? reasons.join(" | ") : "No API keys configured in environment.",
+  };
 }
 
 function countPdfPagesFromBytes(bytes: Uint8Array, fallbackSize: number): number {
@@ -242,7 +270,7 @@ function countPdfPagesFromBytes(bytes: Uint8Array, fallbackSize: number): number
   return Math.max(1, Math.round(fallbackSize / 45000));
 }
 
-function extractTextFromPdfBytes(bytes: Uint8Array, cleanTitle: string, detectedPages: number): string {
+function extractTextFromPdfBytes(bytes: Uint8Array, filename: string, cleanTitle: string, detectedPages: number): string {
   try {
     const raw = new TextDecoder("latin1").decode(bytes);
     const literals = [...raw.matchAll(/\(([^()\\]{3,160})\)\s*Tj/g)]
@@ -250,12 +278,12 @@ function extractTextFromPdfBytes(bytes: Uint8Array, cleanTitle: string, detected
       .filter((s) => /[a-zA-Z]{2,}/.test(s));
     if (literals.length >= 4) {
       const joined = literals.join(" ").replace(/\s+/g, " ").slice(0, 1400);
-      return `Extracted content from "${cleanTitle}" (${detectedPages} pages): ${joined}`;
+      return `Extracted text from "${filename}" (${detectedPages} pages): ${joined}`;
     }
   } catch {
     // fallback
   }
-  return `Document "${cleanTitle}" (${detectedPages} pages) contains structured sections on Retrieval-Augmented Generation, chunking, embeddings, vector databases, and grounded question answering.`;
+  return `Uploaded PDF "${filename}" (title: "${cleanTitle}", ${detectedPages} page(s), ${bytes.byteLength} bytes). Note: PDF text stream is compressed/encoded, so full text extraction requires server-side pypdf/pdfplumber.`;
 }
 
 function extractNumberParam(code: string, name: string, fallback: number): number {
@@ -388,19 +416,19 @@ async function handleDemoFallback<T>(
 
     if (code.includes("ChatOllama") || code.includes("invoke")) {
       const question = extractStringParam(code, "QUESTION", "What is the main topic of this document?");
-      const liveText = await askCloudLLMWithRotation(
+      const outcome = await askCloudLLMWithRotation(
         `Document: ${docName} (${activeDoc.pages} pages)\nContext: ${activeDoc.sampleText}\nQuestion: ${question}`,
         "Answer concisely and accurately based on the provided document context.",
       );
       const answer =
-        liveText ||
-        `Based on ${docName} (${activeDoc.pages} pages), here is a summary for "${question}":\n\n${activeDoc.sampleText}`;
+        outcome.text ||
+        `[Cloud LLM fallback for "${question}" on ${docName}] — Reason: ${outcome.diagnostic}`;
       const sources = [
         { source: docName, page: 1, similarity: 0.914, text: activeDoc.sampleText },
         { source: docName, page: Math.min(2, activeDoc.pages), similarity: 0.859, text: activeDoc.sampleText },
       ];
       const prompt = `Context from ${docName}:\n${activeDoc.sampleText}\n\nQuestion: ${question}`;
-      const result = { answered: true, skipped_llm: false, answer, sources, prompt };
+      const result = { answered: true, skipped_llm: !outcome.text, answer, sources, prompt };
       await logDemoRunToSupabase(5, question, answer);
       return { ok: true, data: { stdout: answer + "\n", stderr: "", exit_code: 0, duration_ms: 240, timed_out: false, result } as T };
     }
@@ -461,7 +489,7 @@ async function handleDemoFallback<T>(
           if (bytes.byteLength > 0) uploadedSize = bytes.byteLength;
           detectedPages = countPdfPagesFromBytes(bytes, uploadedSize);
           const cleanTitle = uploadedName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ");
-          extractedText = extractTextFromPdfBytes(bytes, cleanTitle, detectedPages);
+          extractedText = extractTextFromPdfBytes(bytes, uploadedName, cleanTitle, detectedPages);
         } else {
           detectedPages = countPdfPagesFromBytes(new Uint8Array(0), uploadedSize);
         }
@@ -478,7 +506,7 @@ async function handleDemoFallback<T>(
       path: `/demo/${uploadedName}`,
       sampleText:
         extractedText ||
-        `Document "${cleanTitle}" (${detectedPages} pages) contains structured sections on Retrieval-Augmented Generation, chunking, embeddings, vector databases, and grounded question answering.`,
+        `Uploaded PDF "${uploadedName}" (title: "${cleanTitle}", ${detectedPages} page(s)).`,
     };
     const existingIdx = demoDocsStore.findIndex((d) => d.filename === uploadedName);
     if (existingIdx >= 0) demoDocsStore[existingIdx] = newDoc;
@@ -505,13 +533,15 @@ async function handleDemoFallback<T>(
     const question = String(jsonBody?.["question"] ?? "What is RAG?");
     const allContext = demoDocsStore.map((d) => `[${d.filename} (${d.pages}p)]: ${d.sampleText}`).join("\n\n");
     const primaryDoc = resolveDocForCode("");
-    const liveAnswer = await askCloudLLMWithRotation(
-      `Documents:\n${allContext}\n\nQuestion: ${question}`,
-      "Answer clearly and concisely based on the uploaded documents.",
+    const outcome = await askCloudLLMWithRotation(
+      `Uploaded Documents:\n${allContext}\n\nQuestion: ${question}`,
+      "Answer directly and concisely based on the uploaded documents and question.",
     );
-    const answer =
-      liveAnswer ||
-      `Based on your uploaded documents (${demoDocsStore.map((d) => d.filename).join(", ")}), here is the answer to "${question}":\n\n${primaryDoc.sampleText}`;
+
+    const answer = outcome.text
+      ? `[${outcome.providerUsed}]\n${outcome.text}`
+      : `Question: "${question}"\nDocuments attached: ${demoDocsStore.map((d) => d.filename).join(", ")}\n\nLive cloud LLM did not respond (${outcome.diagnostic}). Add a valid active key in DEEPSEEK_API_KEYS, OPENAI_API_KEYS, or GEMINI_API_KEYS on Vercel and Redeploy.`;
+
     const sources = demoDocsStore.slice(-2).map((d) => ({
       filename: d.filename,
       page: 1,
